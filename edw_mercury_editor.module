@@ -1,0 +1,209 @@
+<?php
+
+/**
+ * @file
+ * Contains EDW Mercury Editor module.
+ */
+
+use Drupal\Core\Entity\EntityChangedInterface;
+use Drupal\Core\Entity\EntityFormInterface;
+use Drupal\Core\Entity\TranslatableInterface;
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\edw_mercury_editor\Render\ComponentAttributesAudit;
+
+/**
+ * Implements hook_form_alter().
+ *
+ * Adds optimistic-locking validation to Mercury Editor entity forms so that a
+ * user is warned, instead of silently overwriting, when the entity was saved by
+ * someone else after the current editing session started.
+ *
+ * Also restores the "Published" checkbox, which Gin otherwise removes from the
+ * editor tray.
+ */
+function edw_mercury_editor_form_alter(array &$form, FormStateInterface $form_state, $form_id) {
+  $form_object = $form_state->getFormObject();
+  if ($form_object instanceof EntityFormInterface
+    && $form_object->getOperation() === 'mercury_editor') {
+    $form['#validate'][] = 'edw_mercury_editor_concurrent_edit_validate';
+    // Must run in #after_build: Gin is a theme, so its hook_form_alter() runs
+    // after every module's and has not yet grouped the field at this point.
+    $form['#after_build'][] = 'edw_mercury_editor_restore_status_field';
+  }
+}
+
+/**
+ * After-build: keeps the "Published" checkbox inside the Mercury Editor tray.
+ *
+ * Gin renders the published state in its sticky form-actions bar rather than in
+ * the form body. It gets there in two steps:
+ *   1. GinContentFormHelper::formAlter() sets $form['status']['#group'] to
+ *      'status', which relocates the checkbox into the container Gin creates at
+ *      $form['gin_sticky_actions']['status'].
+ *   2. gin_form_after_build() then stashes that container in
+ *      _gin_form_actions() and unsets it from the form, so
+ *      gin_preprocess_page() can print it as {{ gin_form_actions }} from Gin's
+ *      own page template.
+ *
+ * Mercury Editor renders neither Gin's page template nor its form template, so
+ * step 2 never happens and the checkbox is lost: core's preRenderGroup() still
+ * marks the element '#printed' because the group exists, and the container that
+ * was meant to render it is gone.
+ *
+ * Undoing the grouping puts the checkbox back at its natural position in the
+ * tray, where the form display places it (weight 4, content region).
+ *
+ * @see \Drupal\gin\GinContentFormHelper::formAlter()
+ * @see gin_form_after_build()
+ * @see \Drupal\Core\Render\Element\RenderElementBase::preRenderGroup()
+ */
+function edw_mercury_editor_restore_status_field(array $form, FormStateInterface $form_state) {
+  // Only act on Gin's grouping. Any other theme (e.g. Claro) leaves the field
+  // alone, and this site has no field group named 'status'.
+  if (($form['status']['#group'] ?? NULL) === 'status') {
+    unset($form['status']['#group']);
+  }
+  return $form;
+}
+
+/**
+ * Validation handler: detects a concurrent edit on a Mercury Editor save.
+ *
+ * Mercury Editor forces the entity "changed" timestamp to the current time on
+ * every validate (MercuryEditorEntityFormTrait::validateForm), which bypasses
+ * Drupal core's EntityChanged optimistic-lock constraint. To restore that
+ * protection we compare the live database "changed" time against the base
+ * timestamp this editing session started from — preserved in the private
+ * tempstore by MercuryEditorParamConverter on write requests. If the database
+ * is newer, another user (or another route) saved first and we block the save.
+ *
+ * @see \Drupal\edw_mercury_editor\Routing\MercuryEditorParamConverter
+ */
+function edw_mercury_editor_concurrent_edit_validate(array &$form, FormStateInterface $form_state) {
+  $form_object = $form_state->getFormObject();
+  if (!$form_object instanceof EntityFormInterface) {
+    return;
+  }
+
+  $entity = $form_object->getEntity();
+  // Only existing, change-tracked entities can have a conflict.
+  if (!$entity instanceof EntityChangedInterface || !$entity->id()) {
+    return;
+  }
+
+  // The tempstore holds the version this editing session is based on. On a save
+  // POST the param converter keeps it even when the database is newer.
+  $base = \Drupal::service('mercury_editor.tempstore_repository')->get($entity->uuid());
+  if (!$base instanceof EntityChangedInterface) {
+    return;
+  }
+
+  $storage = \Drupal::entityTypeManager()->getStorage($entity->getEntityTypeId());
+  $db_entity = $storage->loadUnchanged($entity->id());
+  if (!$db_entity instanceof EntityChangedInterface) {
+    return;
+  }
+
+  // Compare timestamps for the language being edited.
+  $langcode = $entity->language()->getId();
+  $base_changed = _edw_mercury_editor_changed_time($base, $langcode);
+  $db_changed = _edw_mercury_editor_changed_time($db_entity, $langcode);
+
+  if ($db_changed > $base_changed) {
+    $form_state->setError(
+      $form,
+      t('The content has been updated by another user. Reload the page to get the latest version before saving.')
+    );
+  }
+}
+
+/**
+ * Returns an entity's "changed" time for a langcode, falling back to default.
+ *
+ * @param \Drupal\Core\Entity\EntityChangedInterface $entity
+ *   The change-tracked entity.
+ * @param string $langcode
+ *   The langcode of the translation being edited.
+ *
+ * @return int
+ *   The changed timestamp.
+ */
+function _edw_mercury_editor_changed_time(EntityChangedInterface $entity, string $langcode): int {
+  if ($entity instanceof TranslatableInterface && $entity->hasTranslation($langcode)) {
+    $translation = $entity->getTranslation($langcode);
+    if ($translation instanceof EntityChangedInterface) {
+      return $translation->getChangedTime();
+    }
+  }
+  return $entity->getChangedTime();
+}
+
+/**
+ * Implements hook_theme_suggestions_page_alter().
+ */
+function edw_mercury_editor_theme_suggestions_page_alter(array &$suggestions, array $variables) {
+  $route_name = \Drupal::routeMatch()->getRouteName();
+  if (str_starts_with((string) $route_name, 'system.')) {
+    // Do not display Mercury Editor chrome on 404 and 403 pages.
+    $suggestions = array_filter($suggestions, function ($item) {
+      return !str_starts_with($item, 'page__mercury');
+    });
+  }
+}
+
+/**
+ * Implements hook_preprocess_HOOK() for the Mercury Editor page.
+ *
+ * This is the editor page itself - toolbar, dialogs and the tray around the
+ * preview iframe - which renders under the admin theme. Styles for the document
+ * *inside* the iframe are attached separately; see
+ * edw_mercury_editor_page_attachments().
+ *
+ * Requires the active theme to define an 'edit_screen' library (e.g.
+ * `edwtfe/edit_screen`) with styles for the editor chrome.
+ */
+function edw_mercury_editor_preprocess_page__mercury_editor(&$variables) {
+  $variables['#attached']['library'][] = \Drupal::theme()->getActiveTheme()->getName() . '/edit_screen';
+}
+
+/**
+ * Implements hook_page_attachments().
+ *
+ * Adds the theme's preview-iframe styles to the Mercury Editor preview route.
+ *
+ * The preview is a separate document from the editor page, rendered under the
+ * frontend theme, so a preprocess hook on page__mercury_editor cannot reach it:
+ * anything attached there lands on the chrome around the iframe instead. That
+ * is what used to happen, which left rules targeting builder markup
+ * (.js-lpb-component and friends) on a page that has none of it.
+ *
+ * Gated on the same service Mercury Editor uses to attach its own preview
+ * assets. Requires the active theme to define a 'mercury_editor_preview'
+ * library (e.g. `edwtfe/mercury_editor_preview`) with styles for the preview
+ * document.
+ *
+ * @see mercury_editor_page_attachments()
+ */
+function edw_mercury_editor_page_attachments(array &$attachments) {
+  if (\Drupal::service('mercury_editor.context')->isPreview()) {
+    $attachments['#attached']['library'][] = \Drupal::theme()->getActiveTheme()->getName() . '/mercury_editor_preview';
+  }
+}
+
+/**
+ * Implements hook_element_info_alter().
+ *
+ * Appends a #post_render check to the Layout Paragraphs builder element (the
+ * tray Mercury Editor renders inside its preview iframe) that flags any
+ * component whose final markup is missing its "attributes".
+ *
+ * @see \Drupal\edw_mercury_editor\Render\ComponentAttributesAudit
+ */
+function edw_mercury_editor_element_info_alter(array &$info) {
+  if (isset($info['layout_paragraphs_builder'])) {
+    $info['layout_paragraphs_builder']['#post_render'][] = [
+      ComponentAttributesAudit::class,
+      'checkComponentAttributes',
+    ];
+  }
+}

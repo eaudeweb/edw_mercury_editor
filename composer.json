@@ -1,0 +1,25 @@
+{
+    "name": "eaudeweb/edw_mercury_editor",
+    "description": "Overrides for Drupal Mercury Editor.",
+    "type": "drupal-module",
+    "license": "GPL-2.0-or-later",
+    "authors": [
+        {
+            "name": "Mara Predescu",
+            "email": "mara.predescu@eaudeweb.ro"
+        }
+    ],
+    "minimum-stability": "dev",
+    "repositories": [
+        {
+            "type": "composer",
+            "url": "https://packages.drupal.org/8"
+        }
+    ],
+    "require": {
+        "php": ">=8.1",
+        "drupal/core": "^10.3 || ^11",
+        "drupal/layout_paragraphs": "^2.1",
+        "drupal/mercury_editor": "^2.2"
+    }
+}

@@ -1,0 +1,9 @@
+name: EDW Mercury Editor
+description: Provides overrides for Mercury Editor.
+package: custom
+type: module
+core_version_requirement: ^10.3 || ^11
+
+dependencies:
+  - drupal:layout_paragraphs
+  - mercury_editor:mercury_editor

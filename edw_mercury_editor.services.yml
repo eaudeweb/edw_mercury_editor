@@ -1,0 +1,5 @@
+services:
+  edw_mercury_editor.route_subscriber:
+    class: Drupal\edw_mercury_editor\Routing\RouteSubscriber
+    tags:
+      - { name: event_subscriber }
