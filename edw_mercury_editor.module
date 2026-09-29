@@ -5,6 +5,7 @@
  * Contains EDW Mercury Editor module.
  */
 
+use Drupal\Core\Entity\ContentEntityInterface;
 use Drupal\Core\Entity\EntityChangedInterface;
 use Drupal\Core\Entity\EntityFormInterface;
 use Drupal\Core\Entity\TranslatableInterface;
@@ -159,11 +160,32 @@ function edw_mercury_editor_theme_suggestions_page_alter(array &$suggestions, ar
  * *inside* the iframe are attached separately; see
  * edw_mercury_editor_page_attachments().
  *
- * Requires the active theme to define an 'edit_screen' library (e.g.
- * `edwtfe/edit_screen`) with styles for the editor chrome.
+ * Requires the default (frontend) theme to define an 'edit_screen' library
+ * (e.g. `edwtfe/edit_screen`) with styles for the editor chrome. Not the
+ * active theme: this page renders under the admin theme (gin), which knows
+ * nothing about the site's editor styles, so `gin/edit_screen` would never
+ * resolve and none of the chrome fixes - the admin toolbar offset included -
+ * would load.
+ *
+ * Also adds a "View" button to the toolbar, next to "Save" and "Done", that
+ * opens the entity's live canonical page in a new tab. This is deliberately
+ * separate from "Done": that button navigates away and discards any tray
+ * edits that were never persisted through the toolbar "Save", so it isn't
+ * a safe way to just peek at the current published page mid-edit.
  */
 function edw_mercury_editor_preprocess_page__mercury_editor(&$variables) {
-  $variables['#attached']['library'][] = \Drupal::theme()->getActiveTheme()->getName() . '/edit_screen';
+  $variables['#attached']['library'][] = \Drupal::config('system.theme')->get('default') . '/edit_screen';
+
+  // Add a "View" button to the toolbar, linking to the entity's live
+  // canonical page. Only shown for entities that have actually been saved —
+  // a new, not-yet-created entity has no page to view yet.
+  $entity = \Drupal::service('mercury_editor.context')->getEntity();
+  if ($entity instanceof ContentEntityInterface && !$entity->isNew()) {
+    $variables['#attached']['library'][] = 'edw_mercury_editor/view_button';
+    $variables['#attached']['drupalSettings']['edwMercuryEditor']['viewUrl'] = $entity
+      ->toUrl('canonical', ['absolute' => TRUE])
+      ->toString();
+  }
 }
 
 /**

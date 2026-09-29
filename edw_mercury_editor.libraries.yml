@@ -1,0 +1,5 @@
+view_button:
+  js:
+    js/view-button.js: {}
+  dependencies:
+    - core/once

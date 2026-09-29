@@ -32,6 +32,12 @@ multi-editor sites. This module patches them:
   template doesn't forward the `attributes` variable — Layout
   Paragraphs/Mercury Editor need it to track the component for
   drag-reorder, edit and save.
+- **View button.** Replaces the Mercury Editor logo in the editor toolbar
+  with a "View" button that opens the entity's live canonical page in a new
+  tab. Unlike "Done" — which navigates away and discards any tray edits
+  never persisted through the toolbar "Save" — this is a safe way to check
+  the current published page without leaving the editing session. Only
+  shown once the entity has been saved at least once.
 
 This module was extracted from a project-specific `edw_mercury_editor`
 module.
