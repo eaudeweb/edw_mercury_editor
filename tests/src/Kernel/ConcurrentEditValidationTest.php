@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\Tests\edw_mercury_editor\Kernel;
 
 use Drupal\Core\Form\FormState;
+use Drupal\Core\Render\Element;
 use Drupal\KernelTests\KernelTestBase;
 use Drupal\node\Entity\Node;
 use Drupal\node\Entity\NodeType;
@@ -191,6 +192,112 @@ class ConcurrentEditValidationTest extends KernelTestBase {
     $result = edw_mercury_editor_restore_status_field($form, $form_state);
 
     $this->assertArrayNotHasKey('#group', $result['status']);
+  }
+
+  /**
+   * On a node form the checkbox and publishing info move into a collapsible.
+   */
+  public function testRestoreStatusFieldGroupsPublishingInfo(): void {
+    // Weights as FormBuilder::doBuildForm() assigns them to NodeForm's
+    // unweighted meta items by the time #after_build runs.
+    $form = [
+      'status' => ['#group' => 'status', '#weight' => 4],
+      // A bundle outside any workflow: ModerationStateWidget::form() returns
+      // [], so the display's component is an element with no widget.
+      'moderation_state' => ['#weight' => 100],
+      'meta' => [
+        'published' => ['#weight' => 0, '#markup' => 'Published'],
+        'changed' => ['#weight' => 0.001],
+        'author' => ['#weight' => 0.002],
+        'revision_information' => ['#weight' => 0.003],
+      ],
+    ];
+    $form_state = new FormState();
+
+    $result = edw_mercury_editor_restore_status_field($form, $form_state);
+
+    $this->assertArrayNotHasKey('status', $result);
+    $this->assertSame(['publishing', 'revision_information'], Element::children($result['meta'], TRUE));
+    $this->assertArrayHasKey('moderation_state', $result);
+
+    $publishing = $result['meta']['publishing'];
+    $this->assertSame('details', $publishing['#type']);
+    $this->assertSame('Revision information', (string) $publishing['#title']);
+    $this->assertSame(['edw_mercury_editor/status_dropdown'], $publishing['#attached']['library']);
+    $this->assertArrayNotHasKey('#group', $publishing['status']);
+    $this->assertSame(['status', 'changed', 'author'], Element::children($publishing, TRUE));
+  }
+
+  /**
+   * Gin's revision container joins the group and leaves meta's member list.
+   */
+  public function testRestoreStatusFieldMovesRevisionInformationIntoGroup(): void {
+    $revision_information = [
+      '#group' => 'meta',
+      '#array_parents' => ['revision_information'],
+      'revision' => ['#type' => 'checkbox'],
+    ];
+    $other_member = ['#group' => 'meta', '#array_parents' => ['something_else']];
+    $form = [
+      'status' => ['#group' => 'status'],
+      'meta' => [
+        'published' => ['#weight' => 0, '#markup' => 'Published'],
+        'changed' => ['#weight' => 0.001],
+      ],
+      'revision_information' => $revision_information,
+    ];
+    $form_state = new FormState();
+    // As processGroup() leaves it: members under integer keys, by reference
+    // in core, next to the '#group_exists' flag.
+    $form_state->setGroups(['meta' => ['#group_exists' => TRUE, $revision_information, $other_member]]);
+
+    $result = edw_mercury_editor_restore_status_field($form, $form_state);
+
+    $this->assertArrayNotHasKey('revision_information', $result);
+    $publishing = $result['meta']['publishing'];
+    $this->assertSame(['status', 'changed', 'revision_information'], Element::children($publishing, TRUE));
+    $this->assertArrayNotHasKey('#group', $publishing['revision_information']);
+    $this->assertSame(['#group_exists' => TRUE, 1 => $other_member], $form_state->getGroups()['meta']);
+  }
+
+  /**
+   * On a moderated bundle the moderation widget leads the group.
+   */
+  public function testRestoreStatusFieldGroupsModerationWidget(): void {
+    $form = [
+      // content_moderation hides the checkbox; Gin has still grouped it.
+      'status' => ['#group' => 'status', '#access' => FALSE],
+      'moderation_state' => ['#weight' => 100, 'widget' => []],
+      'meta' => [
+        // content_moderation swaps this markup for the state label.
+        'published' => ['#weight' => 0, '#markup' => 'Draft'],
+        'changed' => ['#weight' => 0.001],
+      ],
+    ];
+
+    $result = edw_mercury_editor_restore_status_field($form, new FormState());
+
+    $this->assertArrayNotHasKey('moderation_state', $result);
+    $publishing = $result['meta']['publishing'];
+    $this->assertSame(['moderation_state', 'status', 'changed'], Element::children($publishing, TRUE));
+  }
+
+  /**
+   * An inaccessible moderation widget stays put.
+   */
+  public function testRestoreStatusFieldIgnoresInaccessibleModerationWidget(): void {
+    $form = [
+      'status' => ['#group' => 'status'],
+      'moderation_state' => ['#access' => FALSE, 'widget' => []],
+      'meta' => [
+        'published' => ['#markup' => 'Published'],
+      ],
+    ];
+
+    $result = edw_mercury_editor_restore_status_field($form, new FormState());
+
+    $this->assertArrayHasKey('moderation_state', $result);
+    $this->assertArrayNotHasKey('moderation_state', $result['meta']['publishing']);
   }
 
   /**

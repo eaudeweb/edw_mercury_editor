@@ -3,3 +3,13 @@ view_button:
     js/view-button.js: {}
   dependencies:
     - core/once
+
+status_dropdown:
+  js:
+    js/status-dropdown.js: {}
+  css:
+    component:
+      css/status-dropdown.css: {}
+  dependencies:
+    - core/drupal
+    - core/once
