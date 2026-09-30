@@ -51,19 +51,107 @@ function edw_mercury_editor_form_alter(array &$form, FormStateInterface $form_st
  * marks the element '#printed' because the group exists, and the container that
  * was meant to render it is gone.
  *
- * Undoing the grouping puts the checkbox back at its natural position in the
- * tray, where the form display places it (weight 4, content region).
+ * Undoing the grouping brings the checkbox back. It is then moved next to the
+ * state it changes, and together with NodeForm's read-only publishing info
+ * ($form['meta']: "Published"/"Not published", "Last saved", "Author") put
+ * in a collapsible "details", instead of sitting at its form display
+ * position further up the tray.
+ *
+ * On a moderated bundle content_moderation hides the checkbox and the
+ * moderation state widget takes its place, so that widget goes first in the
+ * group. Core only moves it into the form's footer for the 'edit' and
+ * 'default' operations, which leaves it loose at the bottom of the form here
+ * otherwise.
+ *
+ * The state field - the moderation widget, or else the checkbox - is then
+ * mirrored by a dropdown in the Mercury Editor toolbar, left of "Save"
+ * (js/status-dropdown.js), which hides it in the tray. It stays in the form
+ * so "Save" submits it, and without JS it is still usable here. The group is
+ * therefore titled "Revision information", after what remains visible: Last
+ * saved, Author and the revision fields. It replaces NodeForm's "Published"
+ * heading, since the toolbar now shows the state.
+ *
+ * The revision fields ("Create new revision", "Revision log message") go in
+ * the same group, after the publishing info: they describe the save, like the
+ * publish state, and Gin already files them under the same Status section.
+ * They get there differently, though. Gin sets
+ * $form['revision_information']['#group'] = 'meta', so the container stays
+ * at the top of the form and processGroup() has listed it, by reference, in
+ * the form state's groups under 'meta', for the meta container to pull in at
+ * render time. It is dropped from that list here, or meta would still
+ * render it (the reference outlives the unset) and the moved copy, which
+ * still carries '#group', would be skipped as already printed.
+ *
+ * Moved physically rather than via '#group': by #after_build every element
+ * has been processed, and processGroup() has already filed it under its
+ * original group, so only a physical move still takes effect. Their #parents
+ * are already set, so submitted values keep their keys ('status' etc.). The
+ * details wrapper itself is added unprocessed; the renderer fills in its
+ * element defaults (theme wrapper, pre_render) when it is rendered.
  *
  * @see \Drupal\gin\GinContentFormHelper::formAlter()
  * @see gin_form_after_build()
  * @see \Drupal\Core\Render\Element\RenderElementBase::preRenderGroup()
+ * @see \Drupal\node\NodeForm::form()
  */
 function edw_mercury_editor_restore_status_field(array $form, FormStateInterface $form_state) {
   // Only act on Gin's grouping. Any other theme (e.g. Claro) leaves the field
   // alone, and this site has no field group named 'status'.
-  if (($form['status']['#group'] ?? NULL) === 'status') {
-    unset($form['status']['#group']);
+  if (($form['status']['#group'] ?? NULL) !== 'status') {
+    return $form;
   }
+  unset($form['status']['#group']);
+
+  if (!isset($form['meta']['published'])) {
+    return $form;
+  }
+
+  $published = $form['meta']['published'];
+  // On a bundle outside any workflow the form display still places the
+  // component, but ModerationStateWidget::form() returns [] for it, leaving an
+  // element with no 'widget' child: nothing to move, and not "Moderation".
+  $moderation_state = NULL;
+  if (isset($form['moderation_state']['widget']) && ($form['moderation_state']['#access'] ?? TRUE) !== FALSE) {
+    $moderation_state = ['#weight' => -2] + $form['moderation_state'];
+    unset($moderation_state['#group'], $form['moderation_state']);
+  }
+
+  $publishing = [
+    '#type' => 'details',
+    '#title' => t('Revision information'),
+    '#open' => FALSE,
+    // Where 'published' was. FormBuilder::doBuildForm() has given NodeForm's
+    // unweighted meta items fractional weights in array order (0, 0.001, ...),
+    // so this keeps the group ahead of whatever else meta holds.
+    '#weight' => $published['#weight'] ?? 0,
+    '#attributes' => ['class' => ['edw-mercury-editor-publishing']],
+    '#attached' => ['library' => ['edw_mercury_editor/status_dropdown']],
+    'status' => ['#weight' => -1] + $form['status'],
+  ];
+  unset($form['status'], $form['meta']['published']);
+  if ($moderation_state) {
+    $publishing['moderation_state'] = $moderation_state;
+  }
+  foreach (['changed', 'author'] as $key) {
+    if (isset($form['meta'][$key])) {
+      $publishing[$key] = $form['meta'][$key];
+      unset($form['meta'][$key]);
+    }
+  }
+
+  if (($form['revision_information']['#group'] ?? NULL) === 'meta') {
+    $publishing['revision_information'] = ['#weight' => 10] + $form['revision_information'];
+    unset($publishing['revision_information']['#group'], $form['revision_information']);
+    // Members are listed under integer keys, next to '#group_exists'.
+    $groups = &$form_state->getGroups();
+    foreach (array_filter(array_keys($groups['meta'] ?? []), 'is_int') as $key) {
+      if (($groups['meta'][$key]['#array_parents'] ?? NULL) === ['revision_information']) {
+        unset($groups['meta'][$key]);
+      }
+    }
+  }
+
+  $form['meta']['publishing'] = $publishing;
   return $form;
 }
 

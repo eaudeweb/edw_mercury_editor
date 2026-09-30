@@ -22,6 +22,13 @@ multi-editor sites. This module patches them:
   checkbox into markup that only its own page/form templates print.
   Mercury Editor renders neither, so the checkbox silently disappears
   from the editor tray; this module puts it back.
+- **State dropdown.** The publishing state - the moderation state on
+  bundles in a workflow, the "Published" checkbox otherwise - is shown as a
+  dropdown in the editor toolbar, left of "Save", so it stays visible with
+  the tray collapsed. Picking a state only takes effect on "Save"; a dot on
+  the dropdown marks an unsaved change. The field itself stays in the tray
+  form (hidden), grouped with Last saved, Author and the revision fields in
+  a collapsible "Revision information".
 - **Admin toolbar.** Mercury Editor hides the admin toolbar on its editor
   route by default; this module keeps it visible so editors retain normal
   site navigation while editing.
@@ -59,9 +66,12 @@ drush en edw_mercury_editor
 
 ## Requirements
 
-The active theme must define two libraries, named after the theme (e.g.
+The site's themes must define two libraries, named after the theme (e.g.
 for a theme called `mytheme`: `mytheme/edit_screen` and
-`mytheme/mercury_editor_preview`):
+`mytheme/mercury_editor_preview`). `edit_screen` is loaded from the default
+(frontend) theme even though the editor page renders under the admin
+theme; `mercury_editor_preview` from the theme the preview renders under,
+normally also the default theme:
 
 - `edit_screen`: styles for the editor chrome — toolbar, dialogs and the
   tray around the preview iframe. Attached to the `page--mercury-editor`
