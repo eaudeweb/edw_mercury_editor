@@ -1,0 +1,122 @@
+/**
+ * @file
+ * The publishing/moderation state dropdown in the Mercury Editor toolbar.
+ *
+ * The toggle reuses the toolbar's own `.me-button--secondary` look (anything
+ * with "me-button" in a class name gets Mercury's button styles, so the menu's
+ * own classes avoid that substring). Colors are gin/Mercury tokens, with
+ * fallbacks for other admin themes.
+ */
+
+/* The field the dropdown mirrors. It stays in the tray form, so "Save" still
+   submits it; only the toolbar shows it. Added by status-dropdown.js, so
+   without JS the field stays visible in the tray. */
+.edw-me-status-source {
+  display: none !important;
+}
+
+.edw-me-status {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.edw-me-status[hidden] {
+  display: none;
+}
+
+.edw-me-status__toggle {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 0.4em;
+  max-width: 12rem;
+  white-space: nowrap;
+}
+
+.edw-me-status__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Chevron. */
+.edw-me-status__toggle::after {
+  content: "";
+  flex: none;
+  width: 0.45em;
+  height: 0.45em;
+  margin-block-start: -0.2em;
+  border-inline-end: 2px solid currentColor;
+  border-block-end: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.edw-me-status__toggle[aria-expanded="true"]::after {
+  margin-block-start: 0.2em;
+  transform: rotate(-135deg);
+}
+
+/* A state picked but not saved yet: a dot before the label. */
+.edw-me-status.is-pending .edw-me-status__toggle::before {
+  content: "";
+  flex: none;
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 50%;
+  background: var(--gin-color-warning, #e29700);
+}
+
+.edw-me-status__menu {
+  position: absolute;
+  inset-block-start: calc(100% - 0.25rem);
+  inset-inline-end: 0.2rem;
+  z-index: 1300;
+  min-width: 12rem;
+  margin: 0;
+  padding: 0.25rem 0;
+  list-style: none;
+  border: 1px solid var(--gin-border-color, #d4d4d8);
+  border-radius: 4px;
+  background: var(--gin-bg-layer, #fff);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 15%);
+}
+
+.edw-me-status__option {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+  width: 100%;
+  padding: 0.5rem 0.75rem 0.5rem 1.75rem;
+  border: 0;
+  background: none;
+  color: var(--gin-color-text, #222330);
+  font: inherit;
+  font-size: 0.875rem;
+  text-align: start;
+  cursor: pointer;
+  position: relative;
+}
+
+.edw-me-status__option:hover,
+.edw-me-status__option:focus-visible {
+  background: var(--gin-bg-item-hover, rgb(5 80 230 / 10%));
+  outline: none;
+}
+
+/* Check mark on the chosen state. */
+.edw-me-status__option[aria-checked="true"]::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0.75rem;
+  inset-block-start: 50%;
+  width: 0.35em;
+  height: 0.65em;
+  margin-block-start: -0.4em;
+  border-inline-end: 2px solid var(--gin-color-primary, #0550e6);
+  border-block-end: 2px solid var(--gin-color-primary, #0550e6);
+  transform: rotate(45deg);
+}
+
+.edw-me-status__note {
+  color: var(--gin-color-text-light, #545560);
+  font-size: 0.75rem;
+}

@@ -6,10 +6,14 @@
  */
 
 use Drupal\Core\Entity\ContentEntityInterface;
+use Drupal\Core\Entity\Display\EntityFormDisplayInterface;
+use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
 use Drupal\Core\Entity\EntityChangedInterface;
 use Drupal\Core\Entity\EntityFormInterface;
+use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Entity\TranslatableInterface;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Render\Element;
 use Drupal\edw_mercury_editor\Render\ComponentAttributesAudit;
 
 /**
@@ -20,7 +24,10 @@ use Drupal\edw_mercury_editor\Render\ComponentAttributesAudit;
  * someone else after the current editing session started.
  *
  * Also restores the "Published" checkbox, which Gin otherwise removes from the
- * editor tray.
+ * editor tray, and attaches the toolbar's state dropdown and field groups.
+ *
+ * @see js/status-dropdown.js
+ * @see js/toolbar-groups.js
  */
 function edw_mercury_editor_form_alter(array &$form, FormStateInterface $form_state, $form_id) {
   $form_object = $form_state->getFormObject();
@@ -29,14 +36,140 @@ function edw_mercury_editor_form_alter(array &$form, FormStateInterface $form_st
     $form['#validate'][] = 'edw_mercury_editor_concurrent_edit_validate';
     // Must run in #after_build: Gin is a theme, so its hook_form_alter() runs
     // after every module's and has not yet grouped the field at this point.
-    $form['#after_build'][] = 'edw_mercury_editor_restore_status_field';
+    $form['#after_build'][] = 'edw_mercury_editor_restore_grouped_fields';
+    $form['#attached']['library'][] = 'edw_mercury_editor/status_dropdown';
+    $form['#attached']['library'][] = 'edw_mercury_editor/toolbar_groups';
+    edw_mercury_editor_hide_duplicate_meta($form);
+    // A #process callback, not here: it has to see the form after the admin
+    // theme's form alter (Gin regroups the revision fields under 'meta'), and
+    // before the children are processed into their '#group' containers.
+    $form['#process'][] = 'edw_mercury_editor_publishing_group_process';
   }
 }
 
 /**
- * After-build: keeps the "Published" checkbox inside the Mercury Editor tray.
+ * The key of the "Publishing" sidebar group on Mercury Editor forms.
  *
- * Gin renders the published state in its sticky form-actions bar rather than in
+ * A form display field group with this machine name becomes that group, so
+ * site builders can label it, place it and add fields to it from Manage form
+ * display.
+ */
+const EDW_MERCURY_EDITOR_PUBLISHING_GROUP = 'group_publishing';
+
+/**
+ * Form #process: gathers the publishing information into one sidebar group.
+ *
+ * "Last saved" (the entity meta summary) and "Create new revision" / the
+ * revision log always go into the "Publishing" group, at its end.
+ *
+ * - If the form display has a field group named 'group_publishing', that is
+ *   the group: its fields are whatever the form display gives it, untouched.
+ * - Otherwise one is added to the sidebar ('advanced'), holding the fields
+ *   NodeForm files under "Authoring information" (Authored by, Authored on),
+ *   unless the form display already placed those in a field group of its
+ *   own. The URL alias keeps its own sidebar accordion.
+ *
+ * @see EDW_MERCURY_EDITOR_PUBLISHING_GROUP
+ * @see \Drupal\node\NodeForm::form()
+ * @see \Drupal\Core\Entity\ContentEntityForm::addRevisionableFormFields()
+ */
+function edw_mercury_editor_publishing_group_process(array $form, FormStateInterface $form_state) {
+  $group = EDW_MERCURY_EDITOR_PUBLISHING_GROUP;
+  $moved = array_filter(['meta', 'revision_information'], fn($key) => isset($form[$key]));
+  if (!$moved) {
+    return $form;
+  }
+
+  if (!isset($form['#fieldgroups'][$group])) {
+    $form[$group] = [
+      '#type' => 'details',
+      '#title' => t('Publishing'),
+      '#group' => 'advanced',
+      '#weight' => 30,
+      '#optional' => TRUE,
+    ];
+    // Fields the form display put in a field group stay there. (field_group
+    // sets their '#group' in its own #process callback, which runs after
+    // this one.)
+    $placed = [];
+    foreach ($form['#fieldgroups'] ?? [] as $field_group) {
+      $placed = array_merge($placed, $field_group->children ?? []);
+    }
+    foreach (Element::children($form) as $key) {
+      // NodeForm's "Authoring information" details.
+      if (($form[$key]['#group'] ?? NULL) === 'author' && !in_array($key, $placed, TRUE)) {
+        $form[$key]['#group'] = $group;
+      }
+    }
+    if (isset($form['author'])) {
+      $form['author']['#access'] = FALSE;
+    }
+  }
+
+  // After the group's own fields, in form order.
+  $weight = 1000;
+  foreach ($moved as $key) {
+    $form[$key]['#group'] = $group;
+    $form[$key]['#weight'] = $weight++;
+    // Claro shows the meta summary as its own "Status" details; inside the
+    // group that would be an accordion in an accordion.
+    $form[$key]['#type'] = 'container';
+  }
+  return $form;
+}
+
+/**
+ * Hides the entity meta lines that repeat a field the editor already shows.
+ *
+ * The meta summary at the top of the sidebar (NodeForm's $form['meta']) is a
+ * read-only recap of fields edited elsewhere in the form. In Mercury Editor:
+ * - "Published" / the moderation state label repeats the toolbar's state
+ *   dropdown (status-dropdown.js), which mirrors the status or
+ *   moderation_state field.
+ * - "Author" repeats the "Authored by" field, wherever the form display puts
+ *   it.
+ * Each line is only hidden when the field it repeats is in the form and
+ * editable, so a user who can't change it still sees it. "Last saved" has no
+ * field of its own and stays.
+ *
+ * @param array $form
+ *   The Mercury Editor entity form.
+ */
+function edw_mercury_editor_hide_duplicate_meta(array &$form) {
+  if (!isset($form['meta'])) {
+    return;
+  }
+  $editable = fn(string $field) => isset($form[$field]) && ($form[$field]['#access'] ?? TRUE) !== FALSE;
+  if (isset($form['meta']['published']) && ($editable('moderation_state') || $editable('status'))) {
+    $form['meta']['published']['#access'] = FALSE;
+  }
+  if (isset($form['meta']['author']) && $editable('uid')) {
+    $form['meta']['author']['#access'] = FALSE;
+  }
+}
+
+/**
+ * Implements hook_entity_view_alter().
+ *
+ * Drops content_moderation's "Moderation control" from the preview iframe.
+ *
+ * It's a separate form (state select, log message, "Apply") that would save
+ * the last stored revision behind the editor's back, skipping whatever is
+ * staged in the tray, and it repeats the toolbar's state dropdown anyway.
+ *
+ * @see \Drupal\content_moderation\EntityOperations::entityView()
+ */
+function edw_mercury_editor_entity_view_alter(array &$build, EntityInterface $entity, EntityViewDisplayInterface $display) {
+  if (isset($build['content_moderation_control'])
+    && \Drupal::service('mercury_editor.context')->isPreview()) {
+    unset($build['content_moderation_control']);
+  }
+}
+
+/**
+ * After-build: keeps admin-theme-relocated fields inside the Mercury Editor tray.
+ *
+ * Gin renders the "Published" checkbox in its sticky form-actions bar rather than in
  * the form body. It gets there in two steps:
  *   1. GinContentFormHelper::formAlter() sets $form['status']['#group'] to
  *      'status', which relocates the checkbox into the container Gin creates at
@@ -47,24 +180,81 @@ function edw_mercury_editor_form_alter(array &$form, FormStateInterface $form_st
  *      own page template.
  *
  * Mercury Editor renders neither Gin's page template nor its form template, so
- * step 2 never happens and the checkbox is lost: core's preRenderGroup() still
+ * step 2 never happens and the field is lost: core's preRenderGroup() still
  * marks the element '#printed' because the group exists, and the container that
  * was meant to render it is gone.
  *
- * Undoing the grouping puts the checkbox back at its natural position in the
- * tray, where the form display places it (weight 4, content region).
+ * This isn't specific to the "status" field - it's whatever field ends up
+ * grouped into one of these known unprinted containers. Undoing the grouping
+ * puts each affected field back where the form display places it, like every
+ * other field. A field group from the form display (including
+ * a "Mercury Editor toolbar" one) still takes it: field_group nests its
+ * children at render time and drops their '#group' itself.
  *
  * @see \Drupal\gin\GinContentFormHelper::formAlter()
  * @see gin_form_after_build()
  * @see \Drupal\Core\Render\Element\RenderElementBase::preRenderGroup()
  */
-function edw_mercury_editor_restore_status_field(array $form, FormStateInterface $form_state) {
-  // Only act on Gin's grouping. Any other theme (e.g. Claro) leaves the field
-  // alone, and this site has no field group named 'status'.
-  if (($form['status']['#group'] ?? NULL) === 'status') {
-    unset($form['status']['#group']);
+function edw_mercury_editor_restore_grouped_fields(array $form, FormStateInterface $form_state) {
+  // Group names known to relocate a field into a container that only an
+  // admin theme's own page/form templates print. Add another theme's group
+  // name here if it does the same trick - no new function needed. Any other
+  // theme (e.g. Claro) leaves fields alone, and this site has no field group
+  // named 'status'.
+  $unprinted_groups = ['status'];
+  foreach ($form as $key => $element) {
+    if (is_array($element) && in_array($element['#group'] ?? NULL, $unprinted_groups, TRUE)) {
+      unset($form[$key]['#group']);
+    }
   }
   return $form;
+}
+
+/**
+ * Implements hook_field_widget_single_element_form_alter().
+ *
+ * Keeps a field placed in a "Mercury Editor toolbar" or "Details Sidebar"
+ * field group inside it.
+ *
+ * Some widgets relocate their own element with '#group': PathWidget, for one,
+ * files the URL alias under the form's 'advanced' sidebar. field_group only
+ * drops '#group' from the field's top-level element when nesting it, so the
+ * widget's inner element would still escape to the sidebar - out of the
+ * toolbar panel, or into an accordion of its own next to the sidebar group
+ * that should hold it. The form display is what decides where the field
+ * goes, so the widget's own grouping is dropped for these fields. Groups in
+ * the form body are left alone: there, the widget's sidebar is the only way
+ * to reach the sidebar at all.
+ *
+ * Checked against the form display config rather than '#fieldgroups', which
+ * field_group only attaches in its hook_form_alter(), after widgets are built.
+ */
+function edw_mercury_editor_field_widget_single_element_form_alter(array &$element, FormStateInterface $form_state, array $context) {
+  if (!isset($element['#group'])) {
+    return;
+  }
+  $display = $form_state->get('form_display');
+  if (!$display instanceof EntityFormDisplayInterface) {
+    return;
+  }
+  $groups = $display->getThirdPartySettings('field_group');
+  $field_name = $context['items']->getName();
+  // Walk up from the field through its parent groups.
+  foreach ($groups as $group_name => $group) {
+    if (!in_array($field_name, $group['children'] ?? [], TRUE)) {
+      continue;
+    }
+    $seen = [];
+    while ($group_name && isset($groups[$group_name]) && !isset($seen[$group_name])) {
+      $seen[$group_name] = TRUE;
+      if (in_array($groups[$group_name]['format_type'] ?? NULL, ['edw_mercury_editor_toolbar', 'details_sidebar'], TRUE)) {
+        unset($element['#group']);
+        return;
+      }
+      $group_name = $groups[$group_name]['parent_name'] ?? '';
+    }
+    return;
+  }
 }
 
 /**

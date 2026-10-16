@@ -18,10 +18,44 @@ multi-editor sites. This module patches them:
   discarded in favor of a newer database version (e.g. saved via the
   standard edit form, a bulk action, or another user), and a tempstore
   entry pointing at a deleted entity 404s instead of resurrecting it.
-- **Published checkbox.** The Gin admin theme relocates the "Published"
-  checkbox into markup that only its own page/form templates print.
-  Mercury Editor renders neither, so the checkbox silently disappears
-  from the editor tray; this module puts it back.
+- **Admin-theme-relocated fields.** The Gin admin theme relocates the
+  "Published" checkbox into markup that only its own page/form templates
+  print. Mercury Editor renders neither, so the checkbox silently
+  disappears from the editor tray; this module puts back any field caught
+  the same way, where the form display places it (only Gin's "Published"
+  relocation is currently known and handled, but the fix isn't hardcoded
+  to that one field).
+- **State dropdown.** The publishing state - the moderation state on
+  bundles in a workflow, the "Published" checkbox otherwise - is shown as a
+  dropdown in the editor toolbar, left of "Save", so it stays visible with
+  the tray collapsed. Picking a state only takes effect on "Save"; a dot on
+  the dropdown marks an unsaved change. The field itself stays in the tray
+  form, hidden, wherever the form display puts it.
+- **Publishing group.** Every Mercury Editor form gets one "Publishing"
+  accordion in the sidebar, ending with "Last saved", "Create new revision"
+  and the revision log. A form display field group with the machine name
+  `group_publishing` is used as that group, so its label, position and
+  fields are set in Manage form display. Without one, the module adds the
+  group itself (sidebar weight 30) with "Authored by" and "Authored on",
+  unless the form display already put those in another field group. The URL
+  alias keeps its own sidebar accordion.
+- **No duplicate publishing controls.** The sidebar's read-only state and
+  author lines are hidden when the toolbar dropdown and the "Authored by"
+  field already show them. content_moderation's own "Change to … Apply"
+  form is dropped from the preview, because it would save the stored
+  revision and skip the tray.
+- **Toolbar field groups.** A field group with the "Mercury Editor toolbar"
+  format (Manage form display, requires field_group) becomes a button in the
+  editor toolbar, left of the state dropdown, that opens a panel with the
+  group's fields. Add as many as needed; label, fields and order all come
+  from the form display. The fields stay in the tray form, so "Save" submits
+  them; a dot on the button marks an unsaved change (orange) or a field the
+  last save rejected (red), and "Save" opens the panel of a required field
+  left empty. Widgets that file themselves elsewhere (the URL alias goes to
+  the sidebar) stay in the group. Outside the Mercury Editor the group is a
+  plain details element. Widgets that put popups on `<body>` outside jQuery UI (e.g.
+  CKEditor balloons) are hidden behind an open panel, so keep rich text
+  fields out of toolbar groups.
 - **Admin toolbar.** Mercury Editor hides the admin toolbar on its editor
   route by default; this module keeps it visible so editors retain normal
   site navigation while editing.
@@ -59,9 +93,12 @@ drush en edw_mercury_editor
 
 ## Requirements
 
-The active theme must define two libraries, named after the theme (e.g.
+The site's themes must define two libraries, named after the theme (e.g.
 for a theme called `mytheme`: `mytheme/edit_screen` and
-`mytheme/mercury_editor_preview`):
+`mytheme/mercury_editor_preview`). `edit_screen` is loaded from the default
+(frontend) theme even though the editor page renders under the admin
+theme; `mercury_editor_preview` from the theme the preview renders under,
+normally also the default theme:
 
 - `edit_screen`: styles for the editor chrome — toolbar, dialogs and the
   tray around the preview iframe. Attached to the `page--mercury-editor`

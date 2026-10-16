@@ -167,7 +167,9 @@ class ConcurrentEditValidationTest extends KernelTestBase {
     edw_mercury_editor_form_alter($form, $form_state, 'node_page_mercury_editor_form');
 
     $this->assertContains('edw_mercury_editor_concurrent_edit_validate', $form['#validate']);
-    $this->assertContains('edw_mercury_editor_restore_status_field', $form['#after_build']);
+    $this->assertContains('edw_mercury_editor_restore_grouped_fields', $form['#after_build']);
+    $this->assertContains('edw_mercury_editor/status_dropdown', $form['#attached']['library']);
+    $this->assertContains('edw_mercury_editor/toolbar_groups', $form['#attached']['library']);
 
     // The standard node edit form (operation 'default') is untouched.
     $default_form_object = $this->container->get('entity_type.manager')->getFormObject('node', 'default');
@@ -179,30 +181,72 @@ class ConcurrentEditValidationTest extends KernelTestBase {
 
     $this->assertArrayNotHasKey('#validate', $default_form);
     $this->assertArrayNotHasKey('#after_build', $default_form);
+    $this->assertArrayNotHasKey('#attached', $default_form);
   }
 
   /**
    * Gin's "status" field group is unset so the checkbox renders in the tray.
    */
-  public function testRestoreStatusFieldUndoesGinGrouping(): void {
+  public function testRestoreGroupedFieldsUndoesGinGrouping(): void {
     $form = ['status' => ['#group' => 'status']];
     $form_state = new FormState();
 
-    $result = edw_mercury_editor_restore_status_field($form, $form_state);
+    $result = edw_mercury_editor_restore_grouped_fields($form, $form_state);
 
     $this->assertArrayNotHasKey('#group', $result['status']);
   }
 
   /**
+   * Only the Gin grouping is undone; everything else stays where it was put.
+   *
+   * The form display decides where fields go (a "Mercury Editor toolbar"
+   * field group included), so nothing is moved into a group of our own.
+   */
+  public function testRestoreGroupedFieldsMovesNothingElse(): void {
+    $form = [
+      'status' => ['#group' => 'status', '#weight' => 4],
+      'moderation_state' => ['#weight' => 100, 'widget' => []],
+      'meta' => [
+        'published' => ['#weight' => 0, '#markup' => 'Published'],
+        'changed' => ['#weight' => 0.001],
+        'author' => ['#weight' => 0.002],
+      ],
+      'revision_information' => ['#group' => 'meta'],
+    ];
+
+    $result = edw_mercury_editor_restore_grouped_fields($form, new FormState());
+
+    unset($form['status']['#group']);
+    $this->assertSame($form, $result);
+  }
+
+  /**
    * Any other grouping (or none) is left alone.
    */
-  public function testRestoreStatusFieldLeavesOtherGroupingAlone(): void {
+  public function testRestoreGroupedFieldsLeavesOtherGroupingAlone(): void {
     $form = ['status' => ['#group' => 'some_other_group']];
     $form_state = new FormState();
 
-    $result = edw_mercury_editor_restore_status_field($form, $form_state);
+    $result = edw_mercury_editor_restore_grouped_fields($form, $form_state);
 
     $this->assertSame('some_other_group', $result['status']['#group']);
+  }
+
+  /**
+   * Any field caught by the same group, not just one literally named
+   * "status", is restored — proving the fix isn't hardcoded to one field.
+   */
+  public function testRestoreGroupedFieldsRestoresEveryFieldInTheGroup(): void {
+    $form = [
+      'status' => ['#group' => 'status'],
+      'field_sticky' => ['#group' => 'status'],
+    ];
+    $form_state = new FormState();
+
+    $result = edw_mercury_editor_restore_grouped_fields($form, $form_state);
+
+    $this->assertArrayNotHasKey('#group', $result['status']);
+    $this->assertArrayNotHasKey('#group', $result['field_sticky']);
   }
 
 }

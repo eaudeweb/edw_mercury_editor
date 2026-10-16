@@ -1,0 +1,81 @@
+/**
+ * @file
+ * "Mercury Editor toolbar" field groups: toolbar buttons and their panels.
+ *
+ * Matches the state dropdown (status-dropdown.css): the toggle reuses the
+ * toolbar's `.me-button--secondary` look, own class names avoid the
+ * "me-button" substring, and colors are gin/Mercury tokens with fallbacks.
+ */
+
+.edw-me-toolbar-toggle {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 0.4em;
+  max-width: 12rem;
+  white-space: nowrap;
+}
+
+.edw-me-toolbar-toggle__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Chevron. */
+.edw-me-toolbar-toggle::after {
+  content: "";
+  flex: none;
+  width: 0.45em;
+  height: 0.45em;
+  margin-block-start: -0.2em;
+  border-inline-end: 2px solid currentColor;
+  border-block-end: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.edw-me-toolbar-toggle.is-open::after {
+  margin-block-start: 0.2em;
+  transform: rotate(-135deg);
+}
+
+/* A field changed but not saved yet, or rejected on save: a dot before the
+   label. */
+.edw-me-toolbar-toggle.is-pending::before,
+.edw-me-toolbar-toggle.is-error::before {
+  content: "";
+  flex: none;
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 50%;
+  background: var(--gin-color-warning, #e29700);
+}
+
+.edw-me-toolbar-toggle.is-error::before {
+  background: var(--gin-color-danger, #d72222);
+}
+
+/* The panel. Positioned under its button by toolbar-groups.js; overrides the
+   UA's centered popover. */
+.edw-me-toolbar-group.is-popover {
+  position: fixed;
+  inset: auto;
+  width: min(24rem, calc(100vw - 1rem));
+  margin: 0;
+  padding: 0.75rem 1rem;
+  overflow: auto;
+  border: 1px solid var(--gin-border-color, #d4d4d8);
+  border-radius: 4px;
+  background: var(--gin-bg-layer, #fff);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 15%);
+  color: var(--gin-color-text, #222330);
+}
+
+/* The UA hides a closed popover, but any author `display` (e.g. Claro's
+   `.claro-details`) beats that. */
+.edw-me-toolbar-group.is-popover:not(:popover-open) {
+  display: none !important;
+}
+
+/* The toolbar button stands in for the summary. */
+.edw-me-toolbar-group.is-popover > summary {
+  display: none !important;
+}
