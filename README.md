@@ -22,6 +22,15 @@ multi-editor sites. This module patches them:
   checkbox into markup that only its own page/form templates print.
   Mercury Editor renders neither, so the checkbox silently disappears
   from the editor tray; this module puts it back.
+- **State dropdown.** The publishing state - the moderation state on
+  bundles in a workflow, the "Published" checkbox otherwise - is shown as a
+  dropdown in the editor toolbar, left of "Save", so it stays visible with
+  the tray collapsed. Picking a state only takes effect on "Save"; a dot on
+  the dropdown marks an unsaved change. The field itself stays in the tray
+  where the form display puts it, and the two stay in sync both ways. The
+  sidebar's read-only "Published"/state line is hidden when the dropdown
+  shows it. Without JS the field in the tray still works on its own, and a
+  user who can't change the state gets no dropdown.
 - **Admin toolbar.** Mercury Editor hides the admin toolbar on its editor
   route by default; this module keeps it visible so editors retain normal
   site navigation while editing.

@@ -20,7 +20,9 @@ use Drupal\edw_mercury_editor\Render\ComponentAttributesAudit;
  * someone else after the current editing session started.
  *
  * Also restores the "Published" checkbox, which Gin otherwise removes from the
- * editor tray.
+ * editor tray, and attaches the toolbar's state dropdown.
+ *
+ * @see js/status-dropdown.js
  */
 function edw_mercury_editor_form_alter(array &$form, FormStateInterface $form_state, $form_id) {
   $form_object = $form_state->getFormObject();
@@ -30,6 +32,33 @@ function edw_mercury_editor_form_alter(array &$form, FormStateInterface $form_st
     // Must run in #after_build: Gin is a theme, so its hook_form_alter() runs
     // after every module's and has not yet grouped the field at this point.
     $form['#after_build'][] = 'edw_mercury_editor_restore_status_field';
+    $form['#attached']['library'][] = 'edw_mercury_editor/status_dropdown';
+    edw_mercury_editor_hide_duplicate_state($form);
+  }
+}
+
+/**
+ * Hides the read-only state line that repeats the toolbar's state dropdown.
+ *
+ * NodeForm's meta summary at the top of the sidebar ($form['meta']) starts
+ * with "Published"/"Not published", or the moderation state's label on a
+ * bundle in a workflow. The toolbar dropdown (status-dropdown.js) mirrors the
+ * field behind it, so the line is only hidden when that field - the
+ * moderation state or the "Published" checkbox - is in the form and editable.
+ * A user who can't change the state still sees it.
+ *
+ * @param array $form
+ *   The Mercury Editor entity form.
+ */
+function edw_mercury_editor_hide_duplicate_state(array &$form) {
+  if (!isset($form['meta']['published'])) {
+    return;
+  }
+  foreach (['moderation_state', 'status'] as $field) {
+    if (isset($form[$field]) && ($form[$field]['#access'] ?? TRUE) !== FALSE) {
+      $form['meta']['published']['#access'] = FALSE;
+      return;
+    }
   }
 }
 

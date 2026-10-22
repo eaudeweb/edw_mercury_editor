@@ -168,6 +168,7 @@ class ConcurrentEditValidationTest extends KernelTestBase {
 
     $this->assertContains('edw_mercury_editor_concurrent_edit_validate', $form['#validate']);
     $this->assertContains('edw_mercury_editor_restore_status_field', $form['#after_build']);
+    $this->assertContains('edw_mercury_editor/status_dropdown', $form['#attached']['library']);
 
     // The standard node edit form (operation 'default') is untouched.
     $default_form_object = $this->container->get('entity_type.manager')->getFormObject('node', 'default');
@@ -179,6 +180,44 @@ class ConcurrentEditValidationTest extends KernelTestBase {
 
     $this->assertArrayNotHasKey('#validate', $default_form);
     $this->assertArrayNotHasKey('#after_build', $default_form);
+    $this->assertArrayNotHasKey('#attached', $default_form);
+  }
+
+  /**
+   * The meta state line is hidden when the toolbar dropdown can show it.
+   */
+  public function testHideDuplicateStateWithEditableField(): void {
+    // The checkbox, or the moderation state on a bundle in a workflow (with
+    // the checkbox denied by content_moderation).
+    $forms = [
+      ['status' => [], 'meta' => ['published' => ['#markup' => 'Published']]],
+      [
+        'status' => ['#access' => FALSE],
+        'moderation_state' => [],
+        'meta' => ['published' => ['#markup' => 'Draft']],
+      ],
+    ];
+    foreach ($forms as $form) {
+      edw_mercury_editor_hide_duplicate_state($form);
+      $this->assertFalse($form['meta']['published']['#access']);
+    }
+  }
+
+  /**
+   * A user who can't change the state still sees it in the meta summary.
+   */
+  public function testHideDuplicateStateKeepsLineWithoutEditableField(): void {
+    $form = [
+      'status' => ['#access' => FALSE],
+      'moderation_state' => ['#access' => FALSE],
+      'meta' => ['published' => ['#markup' => 'Published']],
+    ];
+    edw_mercury_editor_hide_duplicate_state($form);
+    $this->assertArrayNotHasKey('#access', $form['meta']['published']);
+
+    $form = ['meta' => ['published' => ['#markup' => 'Published']]];
+    edw_mercury_editor_hide_duplicate_state($form);
+    $this->assertArrayNotHasKey('#access', $form['meta']['published']);
   }
 
   /**
